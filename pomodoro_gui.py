@@ -347,9 +347,10 @@ class PomodoroTimer:
         except (OSError, IOError):
             stats_saved = False
 
-        # 安全取得統計數字
+        # 單次快照取得所有統計
         try:
-            today_str = f"📊 今日: {stats.today_count()} 个番茄钟 ({stats.today_minutes()} 分钟)\n🔥 连续打卡: {stats.streak()} 天"
+            snap = stats.snapshot()
+            today_str = f"📊 今日: {snap['today_count']} 个番茄钟 ({snap['today_minutes']} 分钟)\n🔥 连续打卡: {snap['streak']} 天"
         except Exception:
             today_str = ""
 
@@ -357,7 +358,7 @@ class PomodoroTimer:
         self.time_label.configure(text="00:00")
         self.progress_bar['value'] = 100
         self.status_label.configure(
-            text=f"✅ 时间到！今日完成 {stats.today_count() if stats_saved else '?'} 个番茄",
+            text=f"✅ 时间到！今日完成 {snap['today_count'] if stats_saved else '?'} 个番茄",
             fg=self.COLORS['accent']
         )
         self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
@@ -419,17 +420,15 @@ class PomodoroTimer:
     
     def show_stats(self):
         """顯示統計視窗"""
-        stats = get_stats()
+        snap = get_stats().snapshot()
 
-        # 建立新視窗
         stats_win = tk.Toplevel(self.root)
         stats_win.title("📊 番茄鐘統計")
         stats_win.geometry("440x480")
         stats_win.resizable(False, False)
         stats_win.configure(bg=self.COLORS['bg'])
-        stats_win.grab_set()  # 模態視窗
+        stats_win.grab_set()
 
-        # 置中
         stats_win.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - 440) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - 480) // 2
@@ -438,22 +437,31 @@ class PomodoroTimer:
         frame = tk.Frame(stats_win, bg=self.COLORS['bg'])
         frame.pack(expand=True, fill='both', padx=25, pady=20)
 
-        # 標題
         tk.Label(
             frame, text="📊 番茄鐘統計",
             font=('Microsoft YaHei', 20, 'bold'),
             bg=self.COLORS['bg'], fg=self.COLORS['accent']
         ).pack(pady=(0, 20))
 
-        # 總計區塊
-        total_frame = tk.Frame(frame, bg=self.COLORS['button_bg'], relief='flat', bd=0)
-        total_frame.pack(fill='x', pady=(0, 15))
+        self._build_stats_totals(frame, snap)
+        self._build_stats_cards(frame, snap)
+        self._build_stats_breakdown(frame, snap)
 
-        stats_data = [
-            ("总完成数", f"{stats.total_count} 个"),
-            ("总专注时长", f"{stats.total_hours} 小时 ({stats.total_minutes} 分钟)"),
-        ]
-        for label, value in stats_data:
+        tk.Button(
+            frame, text="关闭", command=stats_win.destroy,
+            font=('Microsoft YaHei', 11),
+            bg=self.COLORS['button_bg'], fg=self.COLORS['fg'],
+            activebackground=self.COLORS['button_active'],
+            relief='flat', padx=30, pady=6, cursor='hand2'
+        ).pack(pady=(15, 0))
+
+    def _build_stats_totals(self, parent, snap):
+        total_frame = tk.Frame(parent, bg=self.COLORS['button_bg'], relief='flat', bd=0)
+        total_frame.pack(fill='x', pady=(0, 15))
+        for label, value in [
+            ("总完成数", f"{snap['total_count']} 个"),
+            ("总专注时长", f"{snap['total_hours']} 小时 ({snap['total_minutes']} 分钟)"),
+        ]:
             row = tk.Frame(total_frame, bg=self.COLORS['button_bg'])
             row.pack(fill='x', padx=15, pady=8)
             tk.Label(row, text=label, font=('Microsoft YaHei', 11),
@@ -461,16 +469,14 @@ class PomodoroTimer:
             tk.Label(row, text=value, font=('Microsoft YaHei', 11, 'bold'),
                      bg=self.COLORS['button_bg'], fg=self.COLORS['fg']).pack(side='right')
 
-        # 今日 / 本週 / 連續
-        grid_frame = tk.Frame(frame, bg=self.COLORS['bg'])
+    def _build_stats_cards(self, parent, snap):
+        grid_frame = tk.Frame(parent, bg=self.COLORS['bg'])
         grid_frame.pack(fill='x', pady=(0, 15))
-
-        cards = [
-            ("今日", f"{stats.today_count()} 个\n{stats.today_minutes()} 分钟"),
-            ("本周", f"{stats.week_count()} 个\n{stats.week_minutes()} 分钟"),
-            ("🔥 连续打卡", f"{stats.streak()} 天"),
-        ]
-        for i, (title, value) in enumerate(cards):
+        for title, value in [
+            ("今日", f"{snap['today_count']} 个\n{snap['today_minutes']} 分钟"),
+            ("本周", f"{snap['week_count']} 个\n{snap['week_minutes']} 分钟"),
+            ("🔥 连续打卡", f"{snap['streak']} 天"),
+        ]:
             card = tk.Frame(grid_frame, bg=self.COLORS['button_bg'], relief='flat', bd=0,
                             width=120, height=80)
             card.pack(side='left', padx=5, expand=True, fill='both')
@@ -480,14 +486,12 @@ class PomodoroTimer:
             tk.Label(card, text=value, font=('Microsoft YaHei', 13, 'bold'),
                      bg=self.COLORS['button_bg'], fg=self.COLORS['accent']).pack()
 
-        # 每日明細
-        tk.Label(frame, text="最近 7 天", font=('Microsoft YaHei', 11, 'bold'),
+    def _build_stats_breakdown(self, parent, snap):
+        tk.Label(parent, text="最近 7 天", font=('Microsoft YaHei', 11, 'bold'),
                  bg=self.COLORS['bg'], fg='#AAAAAA').pack(anchor='w', pady=(5, 8))
-
-        breakdown = stats.daily_breakdown(7)
-        if breakdown:
-            for date, data in reversed(list(breakdown.items())):
-                bar_frame = tk.Frame(frame, bg=self.COLORS['bg'])
+        if snap['daily']:
+            for date, data in reversed(list(sorted(snap['daily'].items()))):
+                bar_frame = tk.Frame(parent, bg=self.COLORS['bg'])
                 bar_frame.pack(fill='x', pady=2)
                 tk.Label(bar_frame, text=date[-5:], font=('Consolas', 9),
                          bg=self.COLORS['bg'], fg='#888888', width=7, anchor='w').pack(side='left')
@@ -499,18 +503,9 @@ class PomodoroTimer:
                          font=('Microsoft YaHei', 9),
                          bg=self.COLORS['bg'], fg='#CCCCCC').pack(side='left')
         else:
-            tk.Label(frame, text="  還沒有記錄，開始你的第一個番茄鐘吧！",
+            tk.Label(parent, text="  還沒有記錄，開始你的第一個番茄鐘吧！",
                      font=('Microsoft YaHei', 10),
                      bg=self.COLORS['bg'], fg='#666666').pack(anchor='w')
-
-        # 關閉按鈕
-        tk.Button(
-            frame, text="关闭", command=stats_win.destroy,
-            font=('Microsoft YaHei', 11),
-            bg=self.COLORS['button_bg'], fg=self.COLORS['fg'],
-            activebackground=self.COLORS['button_active'],
-            relief='flat', padx=30, pady=6, cursor='hand2'
-        ).pack(pady=(15, 0))
 
     def on_closing(self):
         """窗口关闭事件"""
