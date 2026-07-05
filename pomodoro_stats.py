@@ -8,7 +8,12 @@ import os
 from datetime import datetime, timedelta
 from collections import defaultdict
 
-STATS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pomodoro_stats.json")
+# 安全取得 stats 檔案路徑：fallback 到使用者家目錄
+try:
+    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+except NameError:
+    _BASE_DIR = os.path.expanduser("~")
+STATS_FILE = os.path.join(_BASE_DIR, "pomodoro_stats.json")
 
 
 class PomodoroStats:
@@ -23,15 +28,28 @@ class PomodoroStats:
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                if not isinstance(data, list):
+                    return []
+                return data
             except (json.JSONDecodeError, IOError):
                 return []
         return []
 
     def _save(self):
-        """存入 JSON"""
-        with open(self.filepath, "w", encoding="utf-8") as f:
+        """原子寫入 JSON（先寫暫存檔再更名，避免當機損毀資料）"""
+        tmp = self.filepath + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.records, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.filepath)
+
+    @staticmethod
+    def _parse_date(record: dict):
+        """安全解析 timestamp，失敗回傳 epoch"""
+        try:
+            return datetime.fromisoformat(record.get("timestamp", "")).date()
+        except (ValueError, TypeError):
+            return datetime(1970, 1, 1).date()
 
     def add(self, minutes: int, task: str = ""):
         """新增一筆完成記錄"""
@@ -71,7 +89,7 @@ class PomodoroStats:
         monday = today - timedelta(days=today.weekday())
         count = 0
         for r in self.records:
-            d = datetime.fromisoformat(r["timestamp"]).date()
+            d = self._parse_date(r)
             if monday <= d <= today:
                 count += 1
         return count
@@ -81,7 +99,7 @@ class PomodoroStats:
         monday = today - timedelta(days=today.weekday())
         total = 0
         for r in self.records:
-            d = datetime.fromisoformat(r["timestamp"]).date()
+            d = self._parse_date(r)
             if monday <= d <= today:
                 total += r["duration_minutes"]
         return total
@@ -91,7 +109,7 @@ class PomodoroStats:
         today = datetime.now().date()
         breakdown = defaultdict(lambda: {"count": 0, "minutes": 0})
         for r in self.records:
-            d = datetime.fromisoformat(r["timestamp"]).date()
+            d = self._parse_date(r)
             if (today - d).days < days:
                 breakdown[r["date"]]["count"] += 1
                 breakdown[r["date"]]["minutes"] += r["duration_minutes"]
@@ -102,7 +120,7 @@ class PomodoroStats:
         today = datetime.now().date()
         days_with_records = set()
         for r in self.records:
-            days_with_records.add(datetime.fromisoformat(r["timestamp"]).date())
+            days_with_records.add(self._parse_date(r))
 
         streak = 0
         check = today
