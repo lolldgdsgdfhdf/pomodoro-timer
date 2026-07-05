@@ -34,21 +34,19 @@ class PomodoroTimer:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("🍅 番茄钟计时器")
-        self.root.geometry("400x500")
+        self.root.geometry("400x620")
         self.root.resizable(False, False)
         self.root.configure(bg=self.COLORS['bg'])
-        
-        # 设置窗口图标（如果有）
+
         try:
             self.root.iconbitmap(default='')
         except:
             pass
-        
-        # 窗口居中
+
         self.center_window()
-        
+
         # 计时器状态
-        self.total_seconds = 25 * 60  # 默认25分钟
+        self.total_seconds = 25 * 60
         self.remaining = self.total_seconds
         self.is_running = False
         self.is_paused = False
@@ -56,10 +54,17 @@ class PomodoroTimer:
         self.pause_start = None
         self.timer_thread = None
         self.update_id = None
-        
+
+        # 自動循環狀態
+        self.auto_cycle = tk.BooleanVar(value=False)
+        self.break_minutes = 5
+        self.cycle_count = 4
+        self.current_cycle = 0
+        self.session_type = "work"  # "work" | "break"
+
         # 创建界面
         self.setup_ui()
-        
+
         # 绑定窗口关闭事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
@@ -209,6 +214,57 @@ class PomodoroTimer:
             arrowcolor=self.COLORS['fg']
         )
         
+        # ── 自动循环设置 ──
+        cycle_frame = tk.Frame(main_frame, bg=self.COLORS['button_bg'], relief='flat', bd=0)
+        cycle_frame.pack(fill='x', pady=(15, 0), ipady=8)
+
+        self.cycle_cb = tk.Checkbutton(
+            cycle_frame,
+            text="🔄 自动循环",
+            variable=self.auto_cycle,
+            font=('Microsoft YaHei', 10),
+            bg=self.COLORS['button_bg'], fg=self.COLORS['fg'],
+            selectcolor=self.COLORS['button_bg'],
+            activebackground=self.COLORS['button_bg'],
+            activeforeground=self.COLORS['fg'],
+            command=self._on_cycle_toggle
+        )
+        self.cycle_cb.pack(pady=(6, 2))
+
+        cycle_row = tk.Frame(cycle_frame, bg=self.COLORS['button_bg'])
+        cycle_row.pack(pady=(0, 6))
+
+        tk.Label(cycle_row, text="休息:", font=('Microsoft YaHei', 9),
+                 bg=self.COLORS['button_bg'], fg='#AAAAAA').pack(side='left', padx=(0, 5))
+        self.break_var = tk.StringVar(value="5 分钟")
+        self.break_combo = ttk.Combobox(
+            cycle_row, textvariable=self.break_var,
+            values=["1 分钟", "3 分钟", "5 分钟", "10 分钟", "15 分钟"],
+            state='readonly', width=8, font=('Microsoft YaHei', 9)
+        )
+        self.break_combo.pack(side='left', padx=(0, 15))
+        self.break_combo.bind('<<ComboboxSelected>>', self._on_break_change)
+
+        tk.Label(cycle_row, text="循环:", font=('Microsoft YaHei', 9),
+                 bg=self.COLORS['button_bg'], fg='#AAAAAA').pack(side='left', padx=(0, 5))
+        self.cycle_var = tk.StringVar(value="4")
+        self.cycle_spin = tk.Spinbox(
+            cycle_row, textvariable=self.cycle_var, from_=1, to=20,
+            width=3, font=('Microsoft YaHei', 9),
+            bg=self.COLORS['button_bg'], fg=self.COLORS['fg'],
+            buttonbackground=self.COLORS['button_bg']
+        )
+        self.cycle_spin.pack(side='left')
+
+        # ── 阶段指示 ──
+        self.session_label = tk.Label(
+            main_frame,
+            text="",
+            font=('Microsoft YaHei', 11, 'bold'),
+            bg=self.COLORS['bg'], fg=self.COLORS['accent']
+        )
+        self.session_label.pack(pady=(10, 0))
+
         # 底部信息
         info_label = tk.Label(
             main_frame,
@@ -244,6 +300,19 @@ class PomodoroTimer:
         
         return btn
     
+    def _on_cycle_toggle(self):
+        """自动循环勾选改变"""
+        if self.auto_cycle.get():
+            self.session_label.configure(text="🔄 自动循环模式")
+        else:
+            self.session_label.configure(text="")
+            self.current_cycle = 0
+            self.session_type = "work"
+
+    def _on_break_change(self, event=None):
+        """休息时长改变"""
+        self.break_minutes = int(self.break_var.get().split()[0])
+
     def on_time_change(self, event=None):
         """时间选择改变"""
         if not self.is_running:
@@ -264,21 +333,39 @@ class PomodoroTimer:
             self.pause_timer()
     
     def start_timer(self):
-        """开始计时"""
+        """开始计时（根据 session_type 设定时长）"""
+        if self.session_type == "break":
+            self.total_seconds = self.break_minutes * 60
+
         if self.remaining <= 0:
             self.remaining = self.total_seconds
-        
+
         self.is_running = True
         self.is_paused = False
         self.start_time = datetime.now()
-        
+
         # 更新按钮
         self.start_pause_btn.configure(text="⏸  暂停", bg=self.COLORS['warning'])
-        self.status_label.configure(text="▶  专注中...", fg=self.COLORS['success'])
-        
+
+        # 更新状态和阶段标签
+        if self.auto_cycle.get() and self.current_cycle > 0:
+            emoji = "☕" if self.session_type == "break" else "🍅"
+            name = "休息" if self.session_type == "break" else "工作"
+            self.status_label.configure(
+                text=f"▶  {name}中... {self.current_cycle}/{self.cycle_count}",
+                fg=self.COLORS['warning'] if self.session_type == "break" else self.COLORS['success']
+            )
+            self.session_label.configure(
+                text=f"{emoji} {name} #{self.current_cycle}/{self.cycle_count}"
+            )
+        else:
+            self.status_label.configure(text="▶  专注中...", fg=self.COLORS['success'])
+
         # 禁用时间选择
         self.time_combo.configure(state='disabled')
-        
+        self.break_combo.configure(state='disabled')
+        self.cycle_spin.configure(state='disabled')
+
         # 启动计时线程
         self.timer_thread = threading.Thread(target=self.run_timer, daemon=True)
         self.timer_thread.start()
@@ -338,41 +425,86 @@ class PomodoroTimer:
         self.is_running = False
         self.is_paused = False
 
-        # 記錄統計（寫入失敗不影響完成流程）
-        minutes = int(self.time_var.get().split()[0])
+        # 记录统计
+        task_label = self.session_type if self.auto_cycle.get() else "工作"
+        minutes = (self.break_minutes if self.session_type == "break"
+                   else int(self.time_var.get().split()[0]))
         stats = get_stats()
-        stats_saved = True
         try:
-            stats.add(minutes)
+            stats.add(minutes, task=task_label)
         except (OSError, IOError):
-            stats_saved = False
+            pass
 
-        # 安全取得統計數字
-        try:
-            today_str = f"📊 今日: {stats.today_count()} 个番茄钟 ({stats.today_minutes()} 分钟)\n🔥 连续打卡: {stats.streak()} 天"
-        except Exception:
-            today_str = ""
-
-        # 更新界面
         self.time_label.configure(text="00:00")
         self.progress_bar['value'] = 100
-        self.status_label.configure(
-            text=f"✅ 时间到！今日完成 {stats.today_count() if stats_saved else '?'} 个番茄",
-            fg=self.COLORS['accent']
-        )
-        self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
-
-        # 启用时间选择
-        self.time_combo.configure(state='readonly')
-
-        # 播放音乐提醒
         self.play_alarm()
 
-        # 弹出提醒对话框
+        # ── 自动循环逻辑 ──
+        if self.auto_cycle.get():
+            if self.session_type == "work":
+                # 工作完成 → 自动开始休息
+                self.session_type = "break"
+                self.status_label.configure(
+                    text=f"✅ 工作完成！休息 {self.break_minutes} 分钟",
+                    fg=self.COLORS['accent'])
+                self.session_label.configure(
+                    text=f"☕ 休息 #{self.current_cycle}/{self.cycle_count}")
+                self.start_pause_btn.configure(text="⏸  暂停", bg=self.COLORS['warning'])
+                self.root.after(800, self.start_timer)
+            else:
+                # 休息完成 → 下一个循环
+                self.session_type = "work"
+                self.current_cycle += 1
+                if self.current_cycle > self.cycle_count:
+                    # 全部完成
+                    self._finish_cycle(stats)
+                else:
+                    self.status_label.configure(
+                        text=f"✅ 休息完成！开始工作 {self.current_cycle}/{self.cycle_count}",
+                        fg=self.COLORS['success'])
+                    self.session_label.configure(
+                        text=f"🍅 工作 #{self.current_cycle}/{self.cycle_count}")
+                    self.start_pause_btn.configure(text="⏸  暂停", bg=self.COLORS['warning'])
+                    self.root.after(800, self.start_timer)
+        else:
+            # 单次模式
+            self._finish_single(stats)
+
+    def _finish_single(self, stats):
+        """单次完成处理"""
+        self.status_label.configure(text="✅ 时间到！", fg=self.COLORS['accent'])
+        self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
+        self.time_combo.configure(state='readonly')
+        self.break_combo.configure(state='readonly')
+        self.cycle_spin.configure(state='readonly')
+        try:
+            today_str = f"📊 今日: {stats.today_count()} 个 ({stats.today_minutes()} 分钟)\n🔥 连续打卡: {stats.streak()} 天"
+        except Exception:
+            today_str = ""
         self.root.after(100, lambda: messagebox.showinfo(
             "🍅 番茄钟提醒",
             f"时间到！该休息一下了！\n\n建议休息 5 分钟\n\n{today_str}"
         ))
+
+    def _finish_cycle(self, stats):
+        """全部循环完成"""
+        self.auto_cycle.set(False)
+        self.session_type = "work"
+        self.current_cycle = 0
+        self.status_label.configure(text="🎉 全部完成！", fg=self.COLORS['accent'])
+        self.session_label.configure(text="")
+        self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
+        self.time_combo.configure(state='readonly')
+        self.break_combo.configure(state='readonly')
+        self.cycle_spin.configure(state='readonly')
+        try:
+            snap = stats.snapshot()
+            msg = (f"全部循环完成！\n\n"
+                   f"📊 今日: {snap['today_count']} 个阶段 ({snap['today_minutes']} 分钟)\n"
+                   f"🔥 连续打卡: {snap['streak']} 天")
+        except Exception:
+            msg = "全部循环完成！"
+        self.root.after(100, lambda: messagebox.showinfo("🎉 番茄钟", msg))
     
     def play_alarm(self):
         """播放音乐提醒"""
@@ -402,20 +534,27 @@ class PomodoroTimer:
         """重置计时器"""
         self.is_running = False
         self.is_paused = False
-        
+
+        # 重置循环状态
+        self.session_type = "work"
+        self.current_cycle = 0
+
         # 重置时间
         minutes = int(self.time_var.get().split()[0])
         self.total_seconds = minutes * 60
         self.remaining = self.total_seconds
-        
+
         # 更新界面
         self.update_display()
         self.progress_bar['value'] = 0
         self.status_label.configure(text="已重置", fg='#888888')
         self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
-        
-        # 启用时间选择
+        self.session_label.configure(text="")
+
+        # 启用所有选择器
         self.time_combo.configure(state='readonly')
+        self.break_combo.configure(state='readonly')
+        self.cycle_spin.configure(state='readonly')
     
     def show_stats(self):
         """顯示統計視窗"""
