@@ -14,6 +14,8 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
+from pomodoro_stats import get_stats
+
 
 def clear_screen():
     """清屏"""
@@ -169,9 +171,17 @@ def pomodoro_timer(minutes=25):
         clear_screen()
         print_header()
         show_notification()
+
+        # 記錄統計
+        stats = get_stats()
+        stats.add(minutes)
+
         print()
         print(f"  ✅ 专注 {minutes} 分钟完成！")
-        print("  💡 建议休息 5 分钟")
+        print(f"  💡 建议休息 5 分钟")
+        print()
+        print(f"  📊 今日已完成: {stats.today_count()} 个番茄钟 ({stats.today_minutes()} 分钟)")
+        print(f"  🔥 连续打卡: {stats.streak()} 天")
         print()
         
         # 询问是否继续
@@ -190,23 +200,38 @@ def main():
     try:
         # 检查命令行参数
         if len(sys.argv) > 1:
-            try:
-                minutes = int(sys.argv[1])
-                if minutes <= 0:
-                    raise ValueError
-            except ValueError:
-                print("用法: python pomodoro_timer.py [分钟数]")
-                print("示例: python pomodoro_timer.py 25")
-                return
+            arg = sys.argv[1]
+            if arg in ("-s", "--stats"):
+                # 顯示統計
+                stats = get_stats()
+                print(stats.summary())
+                return 0
+            elif arg in ("-h", "--help"):
+                print("用法:")
+                print("  python pomodoro_timer.py             开始 25 分钟番茄钟")
+                print("  python pomodoro_timer.py [分钟数]     自定义时长")
+                print("  python pomodoro_timer.py -s           查看统计")
+                print("  python pomodoro_timer.py -h           查看帮助")
+                return 0
+            else:
+                try:
+                    minutes = int(arg)
+                    if minutes <= 0:
+                        raise ValueError
+                except ValueError:
+                    print("用法: python pomodoro_timer.py [分钟数]")
+                    print("示例: python pomodoro_timer.py 25")
+                    print("统计: python pomodoro_timer.py -s")
+                    return 1
         else:
             minutes = 25
-        
+
         pomodoro_timer(minutes)
-        
+
     except Exception as e:
         print(f"错误: {e}")
         return 1
-    
+
     return 0
 
 
