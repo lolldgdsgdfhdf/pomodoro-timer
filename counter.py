@@ -48,7 +48,6 @@ def main():
     print("  +   : 加一步长")
     print("  -   : 减一步长")
     print("  r   : 重置为0")
-    print("  s   : 设置步长")
     print("  q   : 退出")
     print("-" * 40)
 

@@ -255,9 +255,11 @@ class PomodoroTimer:
             self.status_label.configure(text="准备就绪", fg='#888888')
     
     def toggle_start_pause(self):
-        """切换开始/暂停"""
+        """切换开始/暂停/继续"""
         if not self.is_running:
             self.start_timer()
+        elif self.is_paused:
+            self.resume_timer()
         else:
             self.pause_timer()
     
@@ -336,16 +338,26 @@ class PomodoroTimer:
         self.is_running = False
         self.is_paused = False
 
-        # 記錄統計
+        # 記錄統計（寫入失敗不影響完成流程）
         minutes = int(self.time_var.get().split()[0])
         stats = get_stats()
-        stats.add(minutes)
+        stats_saved = True
+        try:
+            stats.add(minutes)
+        except (OSError, IOError):
+            stats_saved = False
+
+        # 安全取得統計數字
+        try:
+            today_str = f"📊 今日: {stats.today_count()} 个番茄钟 ({stats.today_minutes()} 分钟)\n🔥 连续打卡: {stats.streak()} 天"
+        except Exception:
+            today_str = ""
 
         # 更新界面
         self.time_label.configure(text="00:00")
         self.progress_bar['value'] = 100
         self.status_label.configure(
-            text=f"✅ 时间到！今日完成 {stats.today_count()} 个番茄",
+            text=f"✅ 时间到！今日完成 {stats.today_count() if stats_saved else '?'} 个番茄",
             fg=self.COLORS['accent']
         )
         self.start_pause_btn.configure(text="▶  开始", bg=self.COLORS['success'])
@@ -359,9 +371,7 @@ class PomodoroTimer:
         # 弹出提醒对话框
         self.root.after(100, lambda: messagebox.showinfo(
             "🍅 番茄钟提醒",
-            f"时间到！该休息一下了！\n\n建议休息 5 分钟\n\n"
-            f"📊 今日: {stats.today_count()} 个番茄钟 ({stats.today_minutes()} 分钟)\n"
-            f"🔥 连续打卡: {stats.streak()} 天"
+            f"时间到！该休息一下了！\n\n建议休息 5 分钟\n\n{today_str}"
         ))
     
     def play_alarm(self):
