@@ -86,9 +86,9 @@ def test_summary():
         s = PomodoroStats(filepath=tmp)
         s.add(25)
         output = s.summary()
-        assert "总完成数" in output
-        assert "总专注时长" in output
-        assert "连续打卡" in output
+        assert "總完成數" in output
+        assert "總專注時長" in output
+        assert "連續打卡" in output
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
